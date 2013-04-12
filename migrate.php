@@ -22,8 +22,9 @@ function migrateMysqlToCouch() {
   // Map their schema to what we'll use in CouchDB
   $couchEntries = mapBellSchema($mysqlEntries);
   
+  print_r($couchEntries);
   // Save the content to CouchDB
-  saveCouchDocs($couchEntries);
+  // saveCouchDocs($couchEntries);
 
 }
 
@@ -94,12 +95,29 @@ function saveCouchDocs($docs) {
  */
 
 function mapBellSchema($entries) {
-  foreach($entries as $o) {
+  $mapped = array();
+  foreach($entries as $entry) {
     $n = (object);
-    
-    
+    $n->id = $entry['resrcID'];
+    $n->kind = "resource";
+    $n->title = $entry['title'];
+    $n->author = ""; 
+    $n->subject = $entry['subject'];
+    $n->created = $entry['dateAdded'];
+    $n->community = $entry['community'];
+    $n->TLR = $entry['TLR'];
+    if ($entry["KG"]) $n->levels[] = "KG";
+    if ($entry["P1"]) $n->levels[] = "P1";
+    if ($entry["P2"]) $n->levels[] = "P2";
+    if ($entry["P3"]) $n->levels[] = "P3";
+    if ($entry["P4"]) $n->levels[] = "P4";
+    if ($entry["P5"]) $n->levels[] = "P5";
+    if ($entry["P6"]) $n->levels[] = "P6";
 
+    $mapped[] = $n;
   }
+
+  return $mapped;
 
 }
 ?>
