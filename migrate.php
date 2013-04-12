@@ -9,8 +9,22 @@ migrateMysqlToCouch();
 
 
 function migrateMysqlToCouch() {
+  
+  // Get the mysql entries
+  $mysqlEntries = getMysqlEntries();
 
-  $couch = new couchClient('http://127.0.0.1:5984', 'schoolbell');
+  // Map their schema to what we'll use in CouchDB
+  $couchEntries = mapBellSchema($mysqlEntries);
+  
+  // Save the content to CouchDB
+  saveCouchDocs($couchEntries);
+
+}
+
+
+
+function getMysqlEntries() {
+
   $mysqli = new mysqli("localhost", "root", "", "schoolBell");
 
   // Get our resources from MySQL
@@ -19,39 +33,45 @@ function migrateMysqlToCouch() {
   // Get those resouces into an array
   while($mysqlEntries[] = $results->fetch_row()) { }
 
-  //print_r($mysqlEntries);
-
-  // Map their schema to what we'll use in CouchDB
-  $couchEntries = mapBellSchema($mysqlEntries);
-  
-  print(count($couchEntries));
-  $i=0;
-  while($i < 20) {
-    print_r($couchEntries[$i]);
-    $i++;
-  }
-
-
-
-  // Save the content to CouchDB
-  // saveCouchDocs($couchEntries);
-
+  return $mysqlEntries;
 }
+
 
 
 function saveCouchDocs($docs) {
+
+  $couch = new couchClient('http://127.0.0.1:5984', 'migration');
+
   foreach ($docs as $doc) {
+
     // Save the doc
-    $doc = new couchDocument($client);
+    try {
+      $response = $couch->storeDoc($doc);
+    } catch (Exception $e) {
+      echo "ERROR: ".$e->getMessage()." (".$e->getCode().")<br>\n";
+    }
+
     // Add the attachment
-    $ok = $client->storeAttachment($doc,'/etc/resolv.conf','text/plain', 'my-resolv.conf');
-    print_r($ok);
+    try { 
+      $file_path = "/var/www/resources/" . $doc->legacy['id'] . "." . $doc->legacy['type'];
+      $ok = $couch->storeAttachment($couch->getDoc($response->id), $file_path, mime_content_type($file_path));
+    } catch (Exception $e) {
+      echo "ERROR: ".$e->getMessage()." (".$e->getCode().")<br>\n";
+    }    
+    
+    $success[] = $ok;
+
   }
+  
+  print("Files migrated: " . count($success));
+
 }
+
 
 
 /*
  *  Map the result to the schema we'll use in Couch
+
   mysql> describe resources;
   +-------------+-------------+------+-----+-------------------+----------------+
   | Field       | Type        | Null | Key | Default           | Extra          |
@@ -73,34 +93,7 @@ function saveCouchDocs($docs) {
   | P6          | varchar(3)  | NO   |     | NO                |                |
   | Community   | varchar(3)  | NO   |     | NO                |                |
   | TLR         | varchar(3)  | NO   |     | NO                |                |
-  +-------------+-------------+------+-----+-------------------+----------------+
-
-  => 
-
-  {
-     "_id": "3b847bc22ba3a28994187d60b2000c7b",
-     "_rev": "4-c67a223e57f97782c6907e5cf19aecf2",
-     "kind": "resource",
-     "title": "Another book",
-     "author": "Ken",
-     "subject": "english",
-     "created": "168846...",
-     "community": "not sure what this is",
-     "TLR": "not sure what this is",
-     "levels": [
-         "p2",
-         "p3"
-     ],
-     "_attachments": {
-         "2011-10-21-rjsteinert-PDX-to-OAK.pdf": {
-       "content_type": "application/pdf",
-       "revpos": 3,
-       "digest": "md5-zfT1fKU1I7o/3on3voJYwQ==",
-       "length": 275053,
-       "stub": true
-         }
-     }
-  }
+  +-------------+-------------+------+-----+-------------------+----------------+ 
 
  */
 
@@ -108,7 +101,11 @@ function mapBellSchema($entries) {
   $mapped = array();
   foreach($entries as $entry) {
     $n = new stdClass();
-    $n->id = $entry[1];
+    // save legacy information for migration and in case we need it later
+    $n->legacy = array(
+      "id" => $entry[1],
+      "type" => $entry[5]
+    );
     $n->kind = "resource";
     $n->title = $entry[3];
     $n->author = ""; 
