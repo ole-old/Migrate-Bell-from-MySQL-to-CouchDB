@@ -3,8 +3,8 @@ require_once 'PHP-on-Couch-master/lib/couch.php';
 require_once 'PHP-on-Couch-master/lib/couchClient.php';
 require_once 'PHP-on-Couch-master/lib/couchDocument.php';
 
-
-$tables = ["resources","student", "lessonPlan"]
+$couch = new couchClient('http://127.0.0.1:5984', 'migration');
+$tables = ["resources", "lessonPlan", "feedback" ]
 
 // GO!
 migrateMysqlToCouch();
@@ -18,7 +18,7 @@ function migrateMysqlToCouch() {
     // Map their schema to what we'll use in CouchDB
     $couchEntries = mapBellSchema($mysqlEntries, $table);
     // Save the content to CouchDB
-    saveCouchDocs($couchEntries);
+    saveCouchDocs($couchEntries, $table);
   }
 }
 
@@ -40,8 +40,6 @@ function getMysqlEntries($table) {
 
 
 function saveCouchDocs($docs, $table) {
-
-  $couch = new couchClient('http://127.0.0.1:5984', 'migration');
 
   foreach ($docs as $doc) {
 
@@ -74,6 +72,19 @@ function saveCouchDocs($docs, $table) {
 function mapBeLLSchema($entries, $table) {
   $mapped = array();
   switch($table) {
+    case 'LessonPlan':
+      foreach($entries as $entry) {
+        $n = $entry 
+        $n->kind = "LessonPlan";
+        $n->Pre_Writing_or_Reading = $n->Pre_Writing;
+        unset($n->Pre_Writing);
+        $n->Writing_or_Reading = $n->Writing;
+        unset($n->Writing);
+        $n->Post_Writing_or_Reading = $n->Post_Writing;
+        unset($n->Post_Writing);
+        $mapped[] = $n
+      }
+    break;
     case 'resources':
       foreach($entries as $entry) {
       $n = new stdClass();
@@ -82,7 +93,7 @@ function mapBeLLSchema($entries, $table) {
         "id" => $entry[1],
         "type" => $entry[5]
       );
-      $n->kind = "resource";
+      $n->kind = "Resource";
       $n->title = $entry[3];
       $n->author = ""; 
       $n->subject = strtolower($entry[2]);
@@ -98,8 +109,43 @@ function mapBeLLSchema($entries, $table) {
       if ($entry[14]) $n->levels[] = "P6";
       $mapped[] = $n;
     break;
-    case 'students':
-
+    case 'usedResources':
+      // Transform into kind: Feedback
+      foreach($entries as $entry) {
+        $n = new stdClass();
+        $n->kind = "Feedback";
+        $n->rating = $entry->rating;
+        $n->comment = "";
+        $n->memberId = $entry->usedby;
+        $n->resourceId = $entry->resrcID;
+        $n->timestamp = $entry->dateUsed;
+        $n->context = array(
+          subject => $entry->subject,
+          use => "stories for the week",
+          level => $entry->class
+        ); 
+        $mapped[] = $n
+      }
+    break;
+    case 'teacherClass' :
+      foreach($entries as $entry) {
+        $n = new stdClass();
+        // Transform into kind: Members, role: Teacher
+        $n->id = $entry->loginId;
+        $n->kind = "Member";
+        $n->role = array($entry->Role);
+        $n->pass = $entry->pswd;
+        $n->level = array($entry->classAssign);  // No good equivalent
+        dateRegistered: "";
+        dateOfBirth: "";
+        // Break out the Name
+        $nameArray = explode(" ", $entry->Name);
+        $n->firstName = $nameArray[0];
+        $n->lastName = $nameArray[count($nameArray)-1];
+        $nameArray = array_shift($nameArray);
+        $nameArray = array_pop($nameArray);
+        $n->middleNames = implode(' ', $nameArray);
+      }
     break;
   }
 
