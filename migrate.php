@@ -7,6 +7,10 @@
  *
  */
 
+
+// MySQL
+$mysqli = new mysqli("localhost", "root", "raspberry", "schoolBell");
+
 // CouchDB
 require_once 'PHP-on-Couch-master/lib/couch.php';
 require_once 'PHP-on-Couch-master/lib/couchClient.php';
@@ -24,20 +28,23 @@ $Actions = new couchClient('http://127.0.0.1:5984', 'actions');
 // document kinds: Member
 // from sync: push and pull
 $Members = new couchClient('http://127.0.0.1:5984', 'members'); 
-// database: sync
+// database: syncs
 // document kinds: Sync
 // from sync device: pull
+$Syncs = new couchClient('http://127.0.0.1:5984', 'syncs');
 
-// @todo Finish setting up databases
+$Questions = new couchClient('http://127.0.0.1:5984', 'questions'); 
+$Feedbacks = new couchClient('http://127.0.0.1:5984', 'feedbacks');
+$Groups = new couchClient('http://127.0.0.1:5984', 'groups');
+$Facilities = new couchClient('http://127.0.0.1:5984', 'facilities');
 
 
 
-// database: 
-// from sync: 
 
 
-// MySQL
-$mysqli = new mysqli("localhost", "root", "raspberry", "schoolBell");
+
+
+
 
 /*
  *
@@ -49,7 +56,7 @@ $mysqli = new mysqli("localhost", "root", "raspberry", "schoolBell");
 
 date_default_timezone_set('UTC'); 
 
-$tables = ["teacherClass", "student", "resources", "LessonPlan", "feedback", "VBQuestion", "action_log" ]
+
 
 // We're going to consolidate the Lead Teacher accounts, of which they have two, into one account with two roles.
 $leadTeacherAccountConsolidationMap = [
@@ -67,7 +74,18 @@ $leadTeacherAccountConsolidationMap = [
 
 // Person field was used in the action_log table to reference a user.  We'll want to capture a map of id to names when creating member records so we can migrate the action_log to action records with the correct memberId.
 $idToPersonMap = [];
+// @todo We need to fill this out in the mapping of teacherClass
 
+
+
+
+/*
+ *
+ *
+ * Phase One
+ *
+ *
+ */
 
 // Get record from schoolDetails so we can set Facility and get FacilityId for other documents that will reference the current facility
 $result = $mysqli->query("SELECT * FROM schoolDetails");
@@ -88,7 +106,9 @@ $doc->set(array(
 ));
 $facilityId = $doc->_id;
 
+
 // Create the whoami/facility doc
+
 $whoami = new couchClient('http://127.0.0.1:5984', 'whoami');
 $whoamiFacility = new couchDocument($whoami);
 $whoamiFacility->set(array(
@@ -103,10 +123,7 @@ $whoamiFacility->set(array(
 
 
 
-// $groups
-
-// @todo Create default groups in Couch
-
+// Create default groups in Couch
 
 $levelToGroupIdMap = array(
   "KG" => "",
@@ -133,15 +150,21 @@ foreach($levelToGroupIdMap as $key => $id) {
 saveCouchDocs($groups);
 
 
+
+
+
+
 /*
  *
  *
- * Launch the migration
+ * Phase Two
  *
  *
  */
 
-migrateMysqlToCouch();
+$tables = ["teacherClass", "student", "resources", "LessonPlan", "feedback", "VBQuestion", "action_log" ]
+
+phaseTwo();
 
 
 /*
@@ -152,7 +175,7 @@ migrateMysqlToCouch();
  *
  */
 
-function migrateMysqlToCouch() {
+function phaseTwo() {
   
   // Get the mysql entries
   foreach($tables as $table) {
@@ -168,8 +191,6 @@ function migrateMysqlToCouch() {
 
 function getMysqlEntries($table) {
 
-  $mysqli = new mysqli("localhost", "root", "", "schoolBell");
-
   // Get our resources from MySQL
   $results = $mysqli->query("SELECT * FROM $table");
 
@@ -184,6 +205,9 @@ function getMysqlEntries($table) {
 function saveCouchDocs($docs) {
   foreach($docs as $doc) {
     switch ($doc->kind) {
+
+      // @todo BLOCKER Write the case for each kind:""
+
       case 'Resource':
         //
         // Save the doc
@@ -235,6 +259,7 @@ function mapBeLLSchema($entries, $table) {
         $mapped[] = $n
       }
     break;
+
     // resources table -> kind:Resource documents
     case 'resources':
       foreach($entries as $entry) {
@@ -249,6 +274,7 @@ function mapBeLLSchema($entries, $table) {
       $n->author = ""; 
       $n->subject = strtolower($entry[2]);
       $n->created = $entry[7];
+      // @todo BLOCKER Clean up review
       $n->community = $entry[15];
       $n->TLR = $entry[16];
       if ($entry[8]) $n->levels[] = "KG";
@@ -261,10 +287,9 @@ function mapBeLLSchema($entries, $table) {
       $mapped[] = $n;
     break;
     
-    // usedResources table -> kind:Sync, useContext:"Stories for the week" documents
-    // usedResources table -> kind:Feedback documents
     case 'usedResources':
-      // Transform into kind: Feedback
+
+      // usedResources table -> kind:Feedback documents
       foreach($entries as $entry) {
         $n = new stdClass();
         $n->kind = "Feedback";
@@ -281,8 +306,9 @@ function mapBeLLSchema($entries, $table) {
         ); 
         $mapped[] = $n
       }
+
+      // usedResources table -> kind:Sync, useContext:"Stories for the week" documents
       foreach($entries as $entry) {
-        // @todo usedResources table -> kind:Sync, useContext:"Stories for the week" 
         $n = new stdClass();
         $n->kind = "Sync";
         $n->useContext = "stories for the week";
@@ -290,6 +316,7 @@ function mapBeLLSchema($entries, $table) {
         $n->group = $groups[$entry->class];
         $mapped[] = $n
       }
+
     break;
 
     // teacherClass table -> kind:Member documents
@@ -319,7 +346,7 @@ function mapBeLLSchema($entries, $table) {
           $nameArray = array_shift($nameArray);
           $nameArray = array_pop($nameArray);
           $n->middleNames = implode(' ', $nameArray);
-          // @todo Add id to owner array in documents of kind:Group 
+          // @todo BLOCKER Add id to owner array in documents of kind:Group 
         }
       }
     break;
@@ -347,7 +374,7 @@ function mapBeLLSchema($entries, $table) {
         if(count($nameArray) > 2) {
           $n->middleNames = implode(' ', $nameArray);
         }
-        // @todo Add id to members array in documents of kind:Group 
+        // @todo BLOCKER Add id to members array in documents of kind:Group 
         $mapped[] = $n;
       }
     break;
