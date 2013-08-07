@@ -74,6 +74,7 @@ $leadTeacherAccountConsolidationMap = [
 ];
 
 // Person field was used in the action_log table to reference a user.  We'll want to capture a map of id to names when creating member records so we can migrate the action_log to action records with the correct memberId.
+global $idToPersonMap;
 $idToPersonMap = [];
 // @todo We need to fill this out in the mapping of teacherClass
 
@@ -303,7 +304,6 @@ function mapBeLLSchema($records, $table) {
       $n->author = ""; 
       $n->subject = strtolower($record[2]);
       $n->created = $record[7];
-      // @todo BLOCKER Clean up review
       $n->community = $record[15];
       $n->TLR = $record[16];
       if ($record[8]) $n->levels[] = "KG";
@@ -375,7 +375,10 @@ function mapBeLLSchema($records, $table) {
           $nameArray = array_shift($nameArray);
           $nameArray = array_pop($nameArray);
           $n->middleNames = implode(' ', $nameArray);
-          // @todo BLOCKER Add id to owner array in documents of kind:Group 
+          // Add Member _id to owners array in documents of kind:Group 
+          $group = $Groups->getDoc($levelToGroupIdMap[$record->classAssign]);
+          $group->owners[] = $n->_id;
+          $couchClient->storeDoc($group);
         }
       }
     break;
@@ -403,7 +406,10 @@ function mapBeLLSchema($records, $table) {
         if(count($nameArray) > 2) {
           $n->middleNames = implode(' ', $nameArray);
         }
-        // @todo BLOCKER Add id to members array in documents of kind:Group 
+        // Add Member _id to members array in documents of kind:Group 
+        $group = $Groups->getDoc($levelToGroupIdMap[$record->stuClass]);
+        $group->members[] = $n->_id;
+        $couchClient->storeDoc($group);
         $mapped[] = $n;
       }
     break;
