@@ -1,6 +1,19 @@
 <?php
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 /*
  *
  * Setup dependencies and environment
@@ -29,14 +42,20 @@ $Actions = new couchClient('http://127.0.0.1:5984', 'actions');
 // from sync: push and pull
 $Members = new couchClient('http://127.0.0.1:5984', 'members'); 
 // database: syncs
-// document kinds: Sync
+// document kinds: Assignment
 // from sync device: pull
-$Syncs = new couchClient('http://127.0.0.1:5984', 'syncs');
+$Assignments = new couchClient('http://127.0.0.1:5984', 'assignments');
 
 $Questions = new couchClient('http://127.0.0.1:5984', 'questions'); 
 $Feedbacks = new couchClient('http://127.0.0.1:5984', 'feedbacks');
 $Groups = new couchClient('http://127.0.0.1:5984', 'groups');
 $Facilities = new couchClient('http://127.0.0.1:5984', 'facilities');
+
+
+
+
+
+
 
 
 
@@ -54,12 +73,13 @@ $Facilities = new couchClient('http://127.0.0.1:5984', 'facilities');
  *
  */
 
+$tables = ["teacherClass", "student", "resources", "LessonPlan", "feedback", "action_log" ];
+
 date_default_timezone_set('UTC'); 
-
-
 
 // We're going to consolidate the Lead Teacher accounts, of which they have two, into one account with two roles.
 $leadTeacherAccountConsolidationMap = [
+  // [ Lead Teacher Account, Other Account, Name for Consolidated Account ]
   ['Christian Adjabeng-Leadteacher', 'Adjabeng Christian -P5', 'Adjabeng Christian'], // Sacred Heart
   ['lydia sarfo - leadteacher', 'lydia sarfo p1', 'lydia sarfo'], // Akuiakrom
   ['Charlotte Akpaglo-Lead Teacher', 'Charlotte Akpaglo-P6', 'Charlotte Akpaglo'], // Ayikaidoblo
@@ -69,12 +89,23 @@ $leadTeacherAccountConsolidationMap = [
   ['Benjamin Dodoo-Lead Teacher', 'Benjamin Dodoo-P2', 'Benjamin Dodoo'], // Pokwasi
    // nothing for Sam Sam
   ['Olivia Ahiayibor - lead teacher', 'Olivia Ahiayibor-P5', 'Olivia Ahiayibor'], // Sapeiman
-  ['MISS SERWAH-LEAD TEACHER', 'MISS NKANSAH - P3', 'MISSxNSAH'] // Saint Anthony
+  ['MISS SERWAH-LEAD TEACHER', 'MISS NKANSAH - P3', 'MISS NKANSAH'] // Saint Anthony
 ];
 
 // Person field was used in the action_log table to reference a user.  We'll want to capture a map of id to names when creating member records so we can migrate the action_log to action records with the correct memberId.
 $idToPersonMap = [];
 // @todo We need to fill this out in the mapping of teacherClass
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -137,7 +168,6 @@ $levelToGroupIdMap = array(
 
 foreach($levelToGroupIdMap as $key => $id) {
   $n = new stdClass();
-  // @todo Get an id from Couch
   $n->_id = $couchClient->getUuids(1)[0];
   $n->kind = "Group";
   $n->name = $key;
@@ -154,6 +184,15 @@ saveCouchDocs($groups);
 
 
 
+
+
+
+
+
+
+
+
+
 /*
  *
  *
@@ -162,7 +201,6 @@ saveCouchDocs($groups);
  *
  */
 
-$tables = ["teacherClass", "student", "resources", "LessonPlan", "feedback", "VBQuestion", "action_log" ]
 
 phaseTwo();
 
@@ -176,28 +214,23 @@ phaseTwo();
  */
 
 function phaseTwo() {
-  
-  // Get the mysql entries
   foreach($tables as $table) {
-    $mysqlEntries = getMysqlEntries($table);
+    $mysqlRecords = getMysqlrecords($table);
     // Map their schema to what we'll use in CouchDB
-    $couchEntries = mapBellSchema($mysqlEntries, $table);
+    $transformedRecords = mapBellSchema($mysqlRecords, $table);
     // Save the content to CouchDB
-    saveCouchDocs($couchEntries, $table);
+    saveCouchDocs($transformedRecords);
   }
 }
 
 
 
-function getMysqlEntries($table) {
-
+function getMysqlrecords($table) {
   // Get our resources from MySQL
   $results = $mysqli->query("SELECT * FROM $table");
-
   // Get those resouces into an array
-  while($mysqlEntries[] = $results->fetch_row()) { }
-
-  return $mysqlEntries;
+  while($records[] = $results->fetch_row()) { }
+  return $records;
 }
 
 
@@ -205,50 +238,35 @@ function getMysqlEntries($table) {
 function saveCouchDocs($docs) {
   foreach($docs as $doc) {
     switch ($doc->kind) {
-
-      // @todo BLOCKER Write the case for each kind:""
-
       case 'Resource':
-        //
         // Save the doc
-        try {
-          $response = $couch->storeDoc($doc);
-        } catch (Exception $e) {
-          echo "ERROR: ".$e->getMessage()." (".$e->getCode().")<br>\n";
-        }
-        if($table == "resources") {
-          // Add the attachment
-          try { 
-            $file_path = "/var/www/resources/" . $doc->legacy['id'] . "." . $doc->legacy['type'];
-            $ok = $couch->storeAttachment($couch->getDoc($response->id), $file_path, mime_content_type($file_path));
-          } catch (Exception $e) {
-            echo "ERROR: ".$e->getMessage()." (".$e->getCode().")<br>\n";
-          }    
-        }
-
-        $success[] = $ok;
+        $response = $Resources->storeDoc($doc);
+        // Send the attachment
+        $file_path = "/var/www/resources/" . $doc->legacy['id'] . "." . $doc->legacy['type'];
+        $Resources->storeAttachment($Resources->getDoc($response->id), $file_path, mime_content_type($file_path));
       break;
-      case 'Sync':
-      
+      case 'Assignment':
+        $Assignments->storeDoc($doc); 
+      break;
+      case "Member":
+        $Members->storeDoc($doc);
+      break;
+      case 'Action':
+        $Actions->storeDoc($doc); 
       break;
     }
   }
-
- 
-  
-  print("Files migrated: " . count($success));
-
 }
 
 
-function mapBeLLSchema($entries, $table) {
+function mapBeLLSchema($records, $table) {
   $mapped = array();
   switch($table) {
 
     // LessonPlan table -> kind:LessonPlan documents
     case 'LessonPlan':
-      foreach($entries as $entry) {
-        $n = $entry 
+      foreach($records as $record) {
+        $n = $record 
         $n->kind = "LessonPlan";
         $n->Pre_Writing_or_Reading = $n->Pre_Writing;
         unset($n->Pre_Writing);
@@ -262,58 +280,58 @@ function mapBeLLSchema($entries, $table) {
 
     // resources table -> kind:Resource documents
     case 'resources':
-      foreach($entries as $entry) {
+      foreach($records as $record) {
       $n = new stdClass();
       // save legacy information for migration and in case we need it later
       $n->legacy = array(
-        "id" => $entry[1],
-        "type" => $entry[5]
+        "id" => $record[1],
+        "type" => $record[5]
       );
       $n->kind = "Resource";
-      $n->title = $entry[3];
+      $n->title = $record[3];
       $n->author = ""; 
-      $n->subject = strtolower($entry[2]);
-      $n->created = $entry[7];
+      $n->subject = strtolower($record[2]);
+      $n->created = $record[7];
       // @todo BLOCKER Clean up review
-      $n->community = $entry[15];
-      $n->TLR = $entry[16];
-      if ($entry[8]) $n->levels[] = "KG";
-      if ($entry[9]) $n->levels[] = "P1";
-      if ($entry[10]) $n->levels[] = "P2";
-      if ($entry[11]) $n->levels[] = "P3";
-      if ($entry[12]) $n->levels[] = "P4";
-      if ($entry[13]) $n->levels[] = "P5";
-      if ($entry[14]) $n->levels[] = "P6";
+      $n->community = $record[15];
+      $n->TLR = $record[16];
+      if ($record[8]) $n->levels[] = "KG";
+      if ($record[9]) $n->levels[] = "P1";
+      if ($record[10]) $n->levels[] = "P2";
+      if ($record[11]) $n->levels[] = "P3";
+      if ($record[12]) $n->levels[] = "P4";
+      if ($record[13]) $n->levels[] = "P5";
+      if ($record[14]) $n->levels[] = "P6";
       $mapped[] = $n;
     break;
     
     case 'usedResources':
 
       // usedResources table -> kind:Feedback documents
-      foreach($entries as $entry) {
+      foreach($records as $record) {
         $n = new stdClass();
         $n->kind = "Feedback";
-        $n->rating = $entry->rating;
+        $n->rating = $record->rating;
         $n->comment = "";
         $n->facilityId = $facilityId;
-        $n->memberId = $entry->usedby;
-        $n->resourceId = $entry->resrcID;
-        $n->timestamp = $entry->dateUsed;
+        $n->memberId = $record->usedby;
+        $n->resourceId = $record->resrcID;
+        $n->timestamp = $record->dateUsed;
         $n->context = array(
-          subject => $entry->subject,
+          subject => $record->subject,
           use => "stories for the week",
-          level => $entry->class
+          level => $record->class
         ); 
         $mapped[] = $n
       }
 
       // usedResources table -> kind:Sync, useContext:"Stories for the week" documents
-      foreach($entries as $entry) {
+      foreach($records as $record) {
         $n = new stdClass();
         $n->kind = "Sync";
         $n->useContext = "stories for the week";
         // @todo Get group from $groups, 
-        $n->group = $groups[$entry->class];
+        $n->group = $groups[$record->class];
         $mapped[] = $n
       }
 
@@ -321,8 +339,8 @@ function mapBeLLSchema($entries, $table) {
 
     // teacherClass table -> kind:Member documents
     case 'teacherClass' :
-      foreach($entries as $entry) {
-        if($entry->role=="Leadteacher"){
+      foreach($records as $record) {
+        if($record->role=="Leadteacher"){
           // @todo use $leadTeacherMap to consolidate accounts
         }
         else {
@@ -330,17 +348,17 @@ function mapBeLLSchema($entries, $table) {
           // @todo get ID from Couch 
           $n->_id = $couchClient->getUuids(1)[0];
           // Transform into kind: Members, role: Teacher
-          $n->login = $entry->loginId;
+          $n->login = $record->loginId;
           $n->kind = "Member";
           $n->facilityId = $facilityId;
-          $n->role = array(strtolower($entry->Role));
-          $n->pass = $entry->pswd;
-          $n->level = array($entry->classAssign);  // No good equivalent
+          $n->role = array(strtolower($record->Role));
+          $n->pass = $record->pswd;
+          $n->level = array($record->classAssign);  // No good equivalent
           $n->dateRegistered = "";
           $n->dateOfBirth = "";
           $n->gender = "";
           // Break out the Name
-          $nameArray = explode(" ", $entry->Name);
+          $nameArray = explode(" ", $record->Name);
           $n->firstName = $nameArray[0];
           $n->lastName = $nameArray[count($nameArray)-1];
           $nameArray = array_shift($nameArray);
@@ -353,20 +371,20 @@ function mapBeLLSchema($entries, $table) {
 
     // students table -> kind:Member documents
     case 'students' :
-      foreach($entries as $entry) {
+      foreach($records as $record) {
         $n = new stdClass();
         $n->_id = $couchClient->getUuids(1)[0];
         $n->kind = "Member";
         $n->role = array("student");
         // no login for students
         $n->facilityId = $facilityId;
-        $n->pass = $entry->stuCode;
-        $n->level = array($entry->stuClass);  // No good equivalent
-        $n->dateRegistered = strtotime($entry->DateRegistered); // There's timezone issues here
-        $n->dateOfBirth = strtotime($entry->stuDOB);
+        $n->pass = $record->stuCode;
+        $n->level = array($record->stuClass);  // No good equivalent
+        $n->dateRegistered = strtotime($record->DateRegistered); // There's timezone issues here
+        $n->dateOfBirth = strtotime($record->stuDOB);
         // Break out the Name
-        $nameArray = explode(" ", $entry->Name);
-        $n->gender = $entry->stuGender;
+        $nameArray = explode(" ", $record->Name);
+        $n->gender = $record->stuGender;
         $n->firstName = $nameArray[0];
         $n->lastName = $nameArray[count($nameArray)-1];
         $nameArray = array_shift($nameArray);
@@ -381,7 +399,7 @@ function mapBeLLSchema($entries, $table) {
     // @todo feedback table -> kind:Action, context:pbell documents
     // @todo action_log table -> kind:Action, context:lms documents
     case 'action_log' : 
-      // @todo When filling out $n->memberId, If $entry->person is in the $idToPersonMap, we'll want to consolidate
+      // @todo When filling out $n->memberId, If $record->person is in the $idToPersonMap, we'll want to consolidate
 
     break;
   }
