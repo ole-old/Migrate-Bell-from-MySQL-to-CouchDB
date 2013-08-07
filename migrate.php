@@ -23,20 +23,29 @@
 
 // MySQL
 global $mysqli;
-$mysqli = new mysqli("localhost", "root", "raspberry", "schoolBell");
+$mysqli = new mysqli("localhost", "root", "raspberry", "Test-SchoolDB");
 
 // CouchDB
 require_once 'PHP-on-Couch-master/lib/couch.php';
 require_once 'PHP-on-Couch-master/lib/couchClient.php';
 require_once 'PHP-on-Couch-master/lib/couchDocument.php';
 global $couchUrl;
-$couchUrl = 'http://127.0.0.1:5984';
+$couchUrl = 'http://pi:raspberry@127.0.0.1:5984';
+
 global $couchClient;
-$couchClient = new couchClient($couchUrl);
+
+$couchClient = new couchClient($couchUrl, "dummy");
 
 
-
-
+exec("curl -XPUT $couchUrl/facilities");
+exec("curl -XPUT $couchUrl/whoami");
+exec("curl -XPUT $couchUrl/resources");
+exec("curl -XPUT $couchUrl/members");
+exec("curl -XPUT $couchUrl/assignments");
+exec("curl -XPUT $couchUrl/actions");
+exec("curl -XPUT $couchUrl/questions");
+exec("curl -XPUT $couchUrl/feedback");
+exec("curl -XPUT $couchUrl/groups");
 
 
 
@@ -100,6 +109,7 @@ $idToPersonMap = [];
  */
 
 function saveCouchDocs($docs) {
+  $couchUrl = "http://pi:raspberry@127.0.0.1:5984";
   $Resources = new couchClient($couchUrl, 'resources'); 
   $Assignments = new couchClient($couchUrl, 'assignments');
   $Members = new couchClient($couchUrl, 'members'); 
@@ -115,7 +125,7 @@ function saveCouchDocs($docs) {
         $response = $Resources->storeDoc($doc);
         // Send the attachment
         $file_path = "/var/www/resources/" . $doc->legacy['id'] . "." . $doc->legacy['type'];
-        $Resources->storeAttachment($Resources->getDoc($response->id), $file_path, mime_content_type($pfile_path));
+        $Resources->storeAttachment($Resources->getDoc($response->id), $file_path, mime_content_type($file_path));
       break;
       case 'Assignment':
         $Assignments->storeDoc($doc); 
@@ -158,8 +168,7 @@ function saveCouchDocs($docs) {
 $result = $mysqli->query("SELECT * FROM schoolDetails");
 $schoolDetails = $result->fetch_object();
 $result->close();
-$facility = new couchDocument($client);
-$facility->set(array(
+$facility = (object) array(
   "kind"     => "Facility",
   "type"     => $schoolDetails->schoolType,
   "GPS"      => array("", ""),
@@ -170,10 +179,12 @@ $facility->set(array(
   "district" => "",
   "area"     => "",
   "street"   => ""
-));
+);
+$Facilities = new couchClient($couchUrl, 'facilities');
+$facility = $Facilities->storeDoc($facility);
 
 global $facilityId;
-$facilityId = $facility->_id;
+$facilityId = $facility->id;
 
 
 // Create the whoami/facility doc
@@ -204,6 +215,7 @@ $levelToGroupIdMap = array(
   "P6" => ""
 );
 
+$groups = array();
 foreach($levelToGroupIdMap as $key => $id) {
   $n = new stdClass();
   $n->_id = $couchClient->getUuids(1)[0];
@@ -211,9 +223,10 @@ foreach($levelToGroupIdMap as $key => $id) {
   $n->name = $key;
   $n->level = $key;
   $n->members = array();
-  $n->owner = array();
+  $n->owners = array();
   $n->facilityId = $facilityId;
   $levelToGroupIdMap[$key] = $n->_id;
+  $groups[] = $n;
 }
 
 saveCouchDocs($groups);
@@ -239,38 +252,46 @@ saveCouchDocs($groups);
  *
  *
  */
+print ("Starting Phase Two");
 
-
-$phaseTwoTables = ["teacherClass", "student", "resources", "LessonPlan", "feedback", "action_log" ];
+$phaseTwoTables = ["teacherClass", "students", "resources", "LessonPlan", "feedback", "action_log" ];
+//$phaseTwoTables = ["teacherClass", "students", "LessonPlan", "feedback", "action_log" ];
+//$phaseTwoTables = ["resources", "LessonPlan", "feedback", "action_log" ];
 
 phaseTwo($phaseTwoTables);
 
 
 function phaseTwo($tables) {
   foreach($tables as $table) {
-    $mysqlRecords = getMysqlrecords($table);
+    $mysqlRecords = getMysqlRecords($table);
+    print "Received mysqlRecords for " . $table . "\n";
     // Map their schema to what we'll use in CouchDB
     $transformedRecords = mapBellSchema($mysqlRecords, $table);
+    print "Transformed records for $table \n";
     // Save the content to CouchDB
     saveCouchDocs($transformedRecords);
   }
 }
 
 
-function getMysqlrecords($table) {
+function getMysqlRecords($table) {
   global $mysqli;
   // Get our resources from MySQL
   $results = $mysqli->query("SELECT * FROM $table");
   // Get those resouces into an array
-  while($records[] = $results->fetch_row()) { }
+  $records = array();
+  while($record = $results->fetch_object()) { 
+    $records[] = $record;
+  }
   return $records;
 }
 
 
 function mapBeLLSchema($records, $table) {
-
+  print "mapBeLLSchema CALLED for " . $table . "\n";
   global $couchClient;
   global $facilityId;
+  global $levelToGroupIdMap;
   $mapped = array();
 
   switch($table) {
@@ -278,7 +299,7 @@ function mapBeLLSchema($records, $table) {
     // LessonPlan table -> kind:LessonPlan documents
     case 'LessonPlan':
       foreach($records as $record) {
-        $n = $record 
+        $n = $record; 
         $n->kind = "LessonPlan";
         $n->Pre_Writing_or_Reading = $n->Pre_Writing;
         unset($n->Pre_Writing);
@@ -286,34 +307,42 @@ function mapBeLLSchema($records, $table) {
         unset($n->Writing);
         $n->Post_Writing_or_Reading = $n->Post_Writing;
         unset($n->Post_Writing);
-        $mapped[] = $n
+        $mapped[] = $n;
       }
     break;
 
     // resources table -> kind:Resource documents
     case 'resources':
       foreach($records as $record) {
-      $n = new stdClass();
-      // save legacy information for migration and in case we need it later
-      $n->legacy = array(
-        "id" => $record[1],
-        "type" => $record[5]
-      );
-      $n->kind = "Resource";
-      $n->title = $record[3];
-      $n->author = ""; 
-      $n->subject = strtolower($record[2]);
-      $n->created = $record[7];
-      $n->community = $record[15];
-      $n->TLR = $record[16];
-      if ($record[8]) $n->levels[] = "KG";
-      if ($record[9]) $n->levels[] = "P1";
-      if ($record[10]) $n->levels[] = "P2";
-      if ($record[11]) $n->levels[] = "P3";
-      if ($record[12]) $n->levels[] = "P4";
-      if ($record[13]) $n->levels[] = "P5";
-      if ($record[14]) $n->levels[] = "P6";
-      $mapped[] = $n;
+        $n = new stdClass();
+        // save legacy information for migration and in case we need it later
+        $n->legacy = array(
+          "id" => $record->resrcID,
+          "type" => $record->type
+        );
+        $n->kind = "Resource";
+        $n->title = $record->title;
+        $n->author = ""; 
+        $n->subject = strtolower($record->subject);
+        $n->created = strtotime($record->dateAdded);
+        if($record->Community == "YES") {
+          $n->audience[] = "community education";
+        }
+        if($record->TLR == "YES") {
+          $n->audience[] = "teacher training";
+        }
+        if ($record->KG || $record->P1 || $record->P2 || $record->P3 || $record->P4 || $record->P5 || $record->P6) {
+          $n->audience[] = "formal education";
+        }
+        if ($record->KG) $n->levels[] = "KG";
+        if ($record->P1) $n->levels[] = "P1";
+        if ($record->P2) $n->levels[] = "P2";
+        if ($record->P3) $n->levels[] = "P3";
+        if ($record->P4) $n->levels[] = "P4";
+        if ($record->P5) $n->levels[] = "P5";
+        if ($record->P6) $n->levels[] = "P6";
+        $mapped[] = $n;
+      }
     break;
     
     case 'usedResources':
@@ -329,11 +358,11 @@ function mapBeLLSchema($records, $table) {
         $n->resourceId = $record->resrcID;
         $n->timestamp = $record->dateUsed;
         $n->context = array(
-          subject => $record->subject,
-          use => "stories for the week",
-          level => $record->class
+          "subject" => $record->subject,
+          "use" => "stories for the week",
+          "level" => $record->class
         ); 
-        $mapped[] = $n
+        $mapped[] = $n;
       }
 
       // usedResources table -> kind:Sync, useContext:"Stories for the week" documents
@@ -343,7 +372,7 @@ function mapBeLLSchema($records, $table) {
         $n->useContext = "stories for the week";
         // @todo Get group from $groups, 
         $n->group = $groups[$record->class];
-        $mapped[] = $n
+        $mapped[] = $n;
       }
 
     break;
@@ -351,7 +380,7 @@ function mapBeLLSchema($records, $table) {
     // teacherClass table -> kind:Member documents
     case 'teacherClass' :
       foreach($records as $record) {
-        if($record->role=="Leadteacher"){
+        if($record->Role=="Leadteacher"){
           // @todo use $leadTeacherMap to consolidate accounts
         }
         else {
@@ -372,13 +401,24 @@ function mapBeLLSchema($records, $table) {
           $nameArray = explode(" ", $record->Name);
           $n->firstName = $nameArray[0];
           $n->lastName = $nameArray[count($nameArray)-1];
-          $nameArray = array_shift($nameArray);
-          $nameArray = array_pop($nameArray);
-          $n->middleNames = implode(' ', $nameArray);
+          if(count($nameArray) > 2) {
+            // Modify array for only middle name entries
+            array_pop($nameArray);
+            array_shift($nameArray);
+            $n->middleNames = implode(' ', $nameArray);
+          }
+          else {
+            $n->middleNames = "";
+          }
           // Add Member _id to owners array in documents of kind:Group 
-          $group = $Groups->getDoc($levelToGroupIdMap[$record->classAssign]);
-          $group->owners[] = $n->_id;
-          $couchClient->storeDoc($group);
+          if ($record->classAssign != "Gen") { 
+            global $couchUrl;
+            $Groups = new couchClient($couchUrl, "groups");
+            $groupId = $levelToGroupIdMap[$record->classAssign];
+            $group = $Groups->getDoc($groupId);
+            $group->owners[] = $n->_id;
+            $Groups->storeDoc($group);
+          }
         }
       }
     break;
@@ -397,19 +437,25 @@ function mapBeLLSchema($records, $table) {
         $n->dateRegistered = strtotime($record->DateRegistered); // There's timezone issues here
         $n->dateOfBirth = strtotime($record->stuDOB);
         // Break out the Name
-        $nameArray = explode(" ", $record->Name);
+        $nameArray = explode(" ", $record->stuName);
         $n->gender = $record->stuGender;
         $n->firstName = $nameArray[0];
         $n->lastName = $nameArray[count($nameArray)-1];
-        $nameArray = array_shift($nameArray);
-        $nameArray = array_pop($nameArray);
         if(count($nameArray) > 2) {
+          // Modify array for only middle name entries
+          array_pop($nameArray);
+          array_shift($nameArray);
           $n->middleNames = implode(' ', $nameArray);
         }
+        else {
+          $n->middleNames = "";
+        }
         // Add Member _id to members array in documents of kind:Group 
+        global $couchUrl;
+        $Groups = new couchClient($couchUrl, "groups");
         $group = $Groups->getDoc($levelToGroupIdMap[$record->stuClass]);
         $group->members[] = $n->_id;
-        $couchClient->storeDoc($group);
+        $Groups->storeDoc($group);
         $mapped[] = $n;
       }
     break;
