@@ -22,35 +22,17 @@
 
 
 // MySQL
+global $mysqli;
 $mysqli = new mysqli("localhost", "root", "raspberry", "schoolBell");
 
 // CouchDB
 require_once 'PHP-on-Couch-master/lib/couch.php';
 require_once 'PHP-on-Couch-master/lib/couchClient.php';
 require_once 'PHP-on-Couch-master/lib/couchDocument.php';
-$couchClient = new couchClient('http://127.0.0.1:5984');
-// database: resources
-// document kinds: Resource
-// from sync: only push
-$Resources = new couchClient('http://127.0.0.1:5984', 'resources'); 
-// database: log
-// documents kinds: Action
-// from sync: only pull
-$Actions = new couchClient('http://127.0.0.1:5984', 'actions'); 
-// database: members
-// document kinds: Member
-// from sync: push and pull
-$Members = new couchClient('http://127.0.0.1:5984', 'members'); 
-// database: syncs
-// document kinds: Assignment
-// from sync device: pull
-$Assignments = new couchClient('http://127.0.0.1:5984', 'assignments');
-
-$Questions = new couchClient('http://127.0.0.1:5984', 'questions'); 
-$Feedbacks = new couchClient('http://127.0.0.1:5984', 'feedbacks');
-$Groups = new couchClient('http://127.0.0.1:5984', 'groups');
-$Facilities = new couchClient('http://127.0.0.1:5984', 'facilities');
-
+global $couchUrl;
+$couchUrl = 'http://127.0.0.1:5984';
+global $couchClient;
+$couchClient = new couchClient($couchUrl);
 
 
 
@@ -73,7 +55,6 @@ $Facilities = new couchClient('http://127.0.0.1:5984', 'facilities');
  *
  */
 
-$tables = ["teacherClass", "student", "resources", "LessonPlan", "feedback", "action_log" ];
 
 date_default_timezone_set('UTC'); 
 
@@ -110,6 +91,60 @@ $idToPersonMap = [];
 
 
 
+
+/*
+ *
+ * The save function
+ *
+ */
+
+function saveCouchDocs($docs) {
+  $Resources = new couchClient($couchUrl, 'resources'); 
+  $Assignments = new couchClient($couchUrl, 'assignments');
+  $Members = new couchClient($couchUrl, 'members'); 
+  $Actions = new couchClient($couchUrl, 'actions'); 
+  $Questions = new couchClient($couchUrl, 'questions'); 
+  $Feedbacks = new couchClient($couchUrl, 'feedbacks');
+  $Groups = new couchClient($couchUrl, 'groups');
+  $Facilities = new couchClient($couchUrl, 'facilities');
+  foreach($docs as $doc) {
+    switch ($doc->kind) {
+      case 'Resource':
+        // Save the doc
+        $response = $Resources->storeDoc($doc);
+        // Send the attachment
+        $file_path = "/var/www/resources/" . $doc->legacy['id'] . "." . $doc->legacy['type'];
+        $Resources->storeAttachment($Resources->getDoc($response->id), $file_path, mime_content_type($pfile_path));
+      break;
+      case 'Assignment':
+        $Assignments->storeDoc($doc); 
+      break;
+      case "Member":
+        $Members->storeDoc($doc);
+      break;
+      case 'Action':
+        $Actions->storeDoc($doc); 
+      break;
+      case 'Group':
+        $Groups->storeDoc($doc);
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /*
  *
  *
@@ -122,8 +157,8 @@ $idToPersonMap = [];
 $result = $mysqli->query("SELECT * FROM schoolDetails");
 $schoolDetails = $result->fetch_object();
 $result->close();
-$doc = new couchDocument($client);
-$doc->set(array(
+$facility = new couchDocument($client);
+$facility->set(array(
   "kind"     => "Facility",
   "type"     => $schoolDetails->schoolType,
   "GPS"      => array("", ""),
@@ -135,7 +170,9 @@ $doc->set(array(
   "area"     => "",
   "street"   => ""
 ));
-$facilityId = $doc->_id;
+
+global $facilityId;
+$facilityId = $facility->_id;
 
 
 // Create the whoami/facility doc
@@ -177,6 +214,7 @@ foreach($levelToGroupIdMap as $key => $id) {
   $n->facilityId = $facilityId;
   $levelToGroupIdMap[$key] = $n->_id;
 }
+
 saveCouchDocs($groups);
 
 
@@ -202,18 +240,12 @@ saveCouchDocs($groups);
  */
 
 
-phaseTwo();
+$phaseTwoTables = ["teacherClass", "student", "resources", "LessonPlan", "feedback", "action_log" ];
+
+phaseTwo($phaseTwoTables);
 
 
-/*
- *
- *
- * -=-=-=-=-= Functions -=-=-=-=-
- *
- *
- */
-
-function phaseTwo() {
+function phaseTwo($tables) {
   foreach($tables as $table) {
     $mysqlRecords = getMysqlrecords($table);
     // Map their schema to what we'll use in CouchDB
@@ -224,8 +256,8 @@ function phaseTwo() {
 }
 
 
-
 function getMysqlrecords($table) {
+  global $mysqli;
   // Get our resources from MySQL
   $results = $mysqli->query("SELECT * FROM $table");
   // Get those resouces into an array
@@ -234,33 +266,12 @@ function getMysqlrecords($table) {
 }
 
 
-
-function saveCouchDocs($docs) {
-  foreach($docs as $doc) {
-    switch ($doc->kind) {
-      case 'Resource':
-        // Save the doc
-        $response = $Resources->storeDoc($doc);
-        // Send the attachment
-        $file_path = "/var/www/resources/" . $doc->legacy['id'] . "." . $doc->legacy['type'];
-        $Resources->storeAttachment($Resources->getDoc($response->id), $file_path, mime_content_type($file_path));
-      break;
-      case 'Assignment':
-        $Assignments->storeDoc($doc); 
-      break;
-      case "Member":
-        $Members->storeDoc($doc);
-      break;
-      case 'Action':
-        $Actions->storeDoc($doc); 
-      break;
-    }
-  }
-}
-
-
 function mapBeLLSchema($records, $table) {
+
+  global $couchClient;
+  global $facilityId;
   $mapped = array();
+
   switch($table) {
 
     // LessonPlan table -> kind:LessonPlan documents
@@ -406,4 +417,7 @@ function mapBeLLSchema($records, $table) {
   return $mapped;
 
 }
+
+
+
 ?>
