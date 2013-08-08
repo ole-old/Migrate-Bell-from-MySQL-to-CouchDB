@@ -69,28 +69,22 @@ date_default_timezone_set('UTC');
 
 // We're going to consolidate the Lead Teacher accounts, of which they have two, into one account with two roles.
 $leadTeacherAccountConsolidationMap = [
-  // [ Lead Teacher Account, Other Account, Name for Consolidated Account ]
-  ['Christian Adjabeng-Leadteacher', 'Adjabeng Christian -P5', 'Adjabeng Christian'], // Sacred Heart
-  ['lydia sarfo - leadteacher', 'lydia sarfo p1', 'lydia sarfo'], // Akuiakrom
-  ['Charlotte Akpaglo-Lead Teacher', 'Charlotte Akpaglo-P6', 'Charlotte Akpaglo'], // Ayikaidoblo
-  ['Cephas-Lead Teacher', 'Cephas Agbai-Kude -P6', 'Cephas Agbai-Kude'], // Katapor
-  ['ADWOA K ONADU - LEAD TEACHER', 'ADWOA K AGYEPONG-P3B', 'ADWOA K AGYEPONG'], // Mamobi
-  ['Joshua Opata', 'Joshua Opata - P4', 'Joshua Opata'], // Ogua
-  ['Benjamin Dodoo-Lead Teacher', 'Benjamin Dodoo-P2', 'Benjamin Dodoo'], // Pokwasi
+  // [ Lead Teacher Account, Other Account, Name for Consolidated Account, ID for Consolidated Account ]
+  ['Christian Adjabeng-Leadteacher', 'Adjabeng Christian -P5', 'Adjabeng Christian', null], // Sacred Heart
+  ['lydia sarfo - leadteacher', 'lydia sarfo p1', 'lydia sarfo', null], // Akuiakrom
+  ['Charlotte Akpaglo-Lead Teacher', 'Charlotte Akpaglo-P6', 'Charlotte Akpaglo', null], // Ayikaidoblo
+  ['Cephas-Lead Teacher', 'Cephas Agbai-Kude -P6', 'Cephas Agbai-Kude', null], // Katapor
+  ['ADWOA K ONADU - LEAD TEACHER', 'ADWOA K AGYEPONG-P3B', 'ADWOA K AGYEPONG', null], // Mamobi
+  ['Joshua Opata', 'Joshua Opata - P4', 'Joshua Opata', null], // Ogua
+  ['Benjamin Dodoo-Lead Teacher', 'Benjamin Dodoo-P2', 'Benjamin Dodoo', null], // Pokwasi
    // nothing for Sam Sam
-  ['Olivia Ahiayibor - lead teacher', 'Olivia Ahiayibor-P5', 'Olivia Ahiayibor'], // Sapeiman
-  ['MISS SERWAH-LEAD TEACHER', 'MISS NKANSAH - P3', 'MISS NKANSAH'] // Saint Anthony
+  ['Olivia Ahiayibor - lead teacher', 'Olivia Ahiayibor-P5', 'Olivia Ahiayibor', null], // Sapeiman
+  ['MISS SERWAH-LEAD TEACHER', 'MISS NKANSAH - P3', 'MISS NKANSAH', null] // Saint Anthony
 ];
 
 // Person field was used in the action_log table to reference a user.  We'll want to capture a map of id to names when creating member records so we can migrate the action_log to action records with the correct memberId.
 global $personToIdMap;
 $personToIdMap = [];
-// @todo We need to fill this out in the mapping of teacherClass
-
-
-
-
-
 
 
 
@@ -204,7 +198,7 @@ $whoamiFacility->set(array(
 
 
 // Create default groups in Couch
-
+global $levelToGroupIdMap;
 $levelToGroupIdMap = array(
   "KG" => "",
   "P1" => "",
@@ -333,6 +327,7 @@ function mapBeLLSchema($records, $table) {
           break;
         }
         $n->kind = "Resource";
+        $n->language = "EN";
         $n->title = $record->title;
         $n->author = ""; 
         $n->subject = strtolower($record->subject);
@@ -380,10 +375,15 @@ function mapBeLLSchema($records, $table) {
       // usedResources table -> kind:Sync, useContext:"Stories for the week" documents
       foreach($records as $record) {
         $n = new stdClass();
-        $n->kind = "Sync";
-        $n->useContext = "stories for the week";
-        // @todo Get group from $groups, 
-        $n->group = $groups[$record->class];
+        $n->kind = "Assignment";
+        $n->resourceId = $record->resrcID;
+        $n->startDate = strtotime($record->dateUsed);
+        $n->endDate = strtotime($record->dateUsed);
+        $n->context = array(
+          "subject" => $record->subject,
+          "use" => "stories for the week",
+          "group" => $levelToGroupIdMap[$record->class]
+        );
         $mapped[] = $n;
       }
 
@@ -392,11 +392,26 @@ function mapBeLLSchema($records, $table) {
     // teacherClass table -> kind:Member documents
     case 'teacherClass' :
       global $personToIdMap;
+
+
       foreach($records as $record) {
-        if($record->Role=="Leadteacher"){
-          // @todo use $leadTeacherMap to consolidate accounts
+
+        // Consolidate if needed
+        foreach($leadTeacherAccountConsolidationMap as $key => $map) {
+          if($record->Name == $map[0] || $record->Name == $map[1]) { // See if we should be suspicious of this record
+            if($map[3]) { // If this has a real _id already, we need to skip consolidation but save this a potential name to id match
+              $skip = TRUE;
+              $personToIdMap[$record->Name] = $map[3];
+            }
+            else { // We have our first case of this Lead teacher
+              $skip = FALSE;
+              $originalName = $record->Name; // save for later when we have an ID
+              $record->Name = $map[2]
+            }
+          }
         }
-        else {
+
+        if(!$skip) {
           $n = new stdClass();
           $n->_id = $couchClient->getUuids(1)[0];
           // Save this so we can change the member reference in the action_log table to docs with kind:Action migration
@@ -424,6 +439,10 @@ function mapBeLLSchema($records, $table) {
           else {
             $n->middleNames = "";
           }
+
+          // We need this later for migrating action_log table to documents with kind:Action
+          $personToIdMap[$originalName] = $n->_id;
+
           // Add Member _id to owners array in documents of kind:Group 
           if ($record->classAssign != "Gen") { 
             global $couchUrl;
@@ -433,7 +452,7 @@ function mapBeLLSchema($records, $table) {
             $group->owners[] = $n->_id;
             $Groups->storeDoc($group);
           }
-        }
+          $mapped[] = $n;
       }
     break;
 
