@@ -83,8 +83,8 @@ $leadTeacherAccountConsolidationMap = [
 ];
 
 // Person field was used in the action_log table to reference a user.  We'll want to capture a map of id to names when creating member records so we can migrate the action_log to action records with the correct memberId.
-global $idToPersonMap;
-$idToPersonMap = [];
+global $personToIdMap;
+$personToIdMap = [];
 // @todo We need to fill this out in the mapping of teacherClass
 
 
@@ -320,6 +320,18 @@ function mapBeLLSchema($records, $table) {
           "id" => $record->resrcID,
           "type" => $record->type
         );
+        switch($record->type)
+          case "pdf" :
+          case "doc" :
+          case "docx" : 
+          case "ppt" :
+          case "pptx" :
+            $n->type = "readable";
+          break;
+          case "mp3" :
+            $n->type = "audio story";
+          break;
+        }
         $n->kind = "Resource";
         $n->title = $record->title;
         $n->author = ""; 
@@ -379,14 +391,16 @@ function mapBeLLSchema($records, $table) {
 
     // teacherClass table -> kind:Member documents
     case 'teacherClass' :
+      global $personToIdMap;
       foreach($records as $record) {
         if($record->Role=="Leadteacher"){
           // @todo use $leadTeacherMap to consolidate accounts
         }
         else {
           $n = new stdClass();
-          // @todo get ID from Couch 
           $n->_id = $couchClient->getUuids(1)[0];
+          // Save this so we can change the member reference in the action_log table to docs with kind:Action migration
+          $personToIdMap[$record->Name] = $n->_id
           // Transform into kind: Members, role: Teacher
           $n->login = $record->loginId;
           $n->kind = "Member";
