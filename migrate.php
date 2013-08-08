@@ -396,14 +396,16 @@ function mapBeLLSchema($records, $table) {
 
       foreach($records as $record) {
 
-        // Consolidate if needed
+        // Check to see if this is a lead teacher account, it may cause $skip to be true.
         foreach($leadTeacherAccountConsolidationMap as $key => $map) {
-          if($record->Name == $map[0] || $record->Name == $map[1]) { // See if we should be suspicious of this record
-            if($map[3]) { // If this has a real _id already, we need to skip consolidation but save this a potential name to id match
+          if($record->Name == $map[0] || $record->Name == $map[1]) { 
+            // If this has a real _id already, we need to skip consolidation but save this a potential name to id match
+            if($map[3]) { 
               $skip = TRUE;
               $personToIdMap[$record->Name] = $map[3];
             }
-            else { // We have our first case of this Lead teacher
+            // We have our first case of this Lead teacher in which case we want to this account the desired name and make a new Member document
+            else { 
               $skip = FALSE;
               $originalName = $record->Name; // save for later when we have an ID
               $record->Name = $map[2]
