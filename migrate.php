@@ -1,19 +1,6 @@
 <?php
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 /*
  *
  * Setup dependencies and environment
@@ -32,7 +19,7 @@ require_once 'PHP-on-Couch-master/lib/couchDocument.php';
 global $couchUrl;
 $couchUrl = 'http://pi:raspberry@127.0.0.1:5984';
 // Version of this code will place in seperate databases for testing
-$v = "1";
+$v = "2";
 $dbNames = array( 
   "facilities" => "facilities$v",
   "whoami" => "whoami$v",
@@ -221,7 +208,8 @@ $whoamiConfig->set(array(
 // Create default groups in Couch
 global $levelToGroupIdMap;
 $levelToGroupIdMap = array(
-  "KG" => "",
+  "KG1" => "",
+  "KG2" => "",
   "P1" => "",
   "P2" => "",
   "P3" => "",
@@ -236,11 +224,17 @@ foreach($levelToGroupIdMap as $key => $id) {
   $n->_id = $couchClient->getUuids(1)[0];
   $n->kind = "Group";
   $n->name = $key;
-  $n->level = $key;
+  $n->level = array($key);
   $n->members = array();
   $n->owners = array();
   $n->facilityId = $facilityId;
-  $levelToGroupIdMap[$key] = $n->_id;
+  // Things with level:KG are going to reference the KG1 group
+  if($key == "KG1") {
+    $levelToGroupIdMap["KG"] = $n->_id;
+  }
+  else {
+    $levelToGroupIdMap[$key] = $n->_id;
+  }
   $groups[] = $n;
 }
 
@@ -315,6 +309,7 @@ function mapBeLLSchema($records, $table) {
     // LessonPlan table -> kind:LessonPlan documents
     case 'LessonPlan':
       foreach($records as $record) {
+        // @todo This needs to also create docs of kind:Assignment 
         $n = $record; 
         $n->kind = "LessonPlan";
         $n->Pre_Writing_or_Reading = $n->Pre_Writing;
@@ -363,7 +358,7 @@ function mapBeLLSchema($records, $table) {
         if ($record->KG || $record->P1 || $record->P2 || $record->P3 || $record->P4 || $record->P5 || $record->P6) {
           $n->audience[] = "formal education";
         }
-        if ($record->KG) $n->levels[] = "KG";
+        if ($record->KG) $n->levels[] = array("KG1", "KG2");
         if ($record->P1) $n->levels[] = "P1";
         if ($record->P2) $n->levels[] = "P2";
         if ($record->P3) $n->levels[] = "P3";
@@ -386,15 +381,16 @@ function mapBeLLSchema($records, $table) {
         $n->memberId = $record->usedby;
         $n->resourceId = $record->resrcID;
         $n->timestamp = $record->dateUsed;
+        $level = ($record->class == "KG") ? "KG1": $record->class;
         $n->context = array(
           "subject" => $record->subject,
           "use" => "stories for the week",
-          "level" => $record->class
+          "level" => $level
         ); 
         $mapped[] = $n;
       }
 
-      // usedResources table -> kind:Sync, useContext:"Stories for the week" documents
+      // usedResources table -> kind:Assignment, useContext:"Stories for the week" documents
       foreach($records as $record) {
         $n = new stdClass();
         $n->kind = "Assignment";
@@ -446,7 +442,7 @@ function mapBeLLSchema($records, $table) {
           $n->facilityId = $facilityId;
           $n->role = array(strtolower($record->Role));
           $n->pass = $record->pswd;
-          $n->level = array($record->classAssign);  // No good equivalent
+          $n->levels = ($record->classAssign == "KG") ? array("KG1") : array($record->classAssign);  // No good equivalent
           $n->dateRegistered = "";
           $n->dateOfBirth = "";
           $n->gender = "";
@@ -493,7 +489,7 @@ function mapBeLLSchema($records, $table) {
         // no login for students
         $n->facilityId = $facilityId;
         $n->pass = $record->stuCode;
-        $n->level = array($record->stuClass);  // No good equivalent
+        $n->levels = ($record->stuClass == "KG") ? array("KG1") : array($record->stuClass); 
         $n->dateRegistered = strtotime($record->DateRegistered); // There's timezone issues here
         $n->dateOfBirth = strtotime($record->stuDOB);
         // Break out the Name
