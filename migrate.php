@@ -345,6 +345,7 @@ function mapBeLLSchema($records, $table) {
         }
         $n->kind = "Resource";
         $n->language = "en";
+        $n->description = $record->description;
         $n->title = $record->title;
         $n->author = ""; 
         $n->subject = strtolower($record->subject);
@@ -433,7 +434,7 @@ function mapBeLLSchema($records, $table) {
 
         if(!$skip) {
           $n = new stdClass();
-          $n->_id = $couchClient->getUuids(1)[0];
+          $n->_id = "gh" . $couchClient->getUuids(1)[0];
           // Save this so we can change the member reference in the action_log table to docs with kind:Action migration
           $personToIdMap[$record->Name] = $n->_id;
           // Transform into kind: Members, role: Teacher
@@ -442,9 +443,11 @@ function mapBeLLSchema($records, $table) {
           $n->facilityId = $facilityId;
           $n->role = array(strtolower($record->Role));
           $n->pass = $record->pswd;
+          $n->status= "active";
           $n->levels = ($record->classAssign == "KG") ? array("KG1") : array($record->classAssign);  // No good equivalent
           $n->dateRegistered = "";
           $n->dateOfBirth = "";
+          $n->nationality = "gh";
           $n->gender = "";
           // Break out the Name
           $nameArray = explode(" ", $record->Name);
@@ -483,7 +486,7 @@ function mapBeLLSchema($records, $table) {
     case 'students' :
       foreach($records as $record) {
         $n = new stdClass();
-        $n->_id = $couchClient->getUuids(1)[0];
+        $n->_id = "gh" . $couchClient->getUuids(1)[0];
         $n->kind = "Member";
         $n->role = array("student");
         // no login for students
@@ -492,8 +495,10 @@ function mapBeLLSchema($records, $table) {
         $n->levels = ($record->stuClass == "KG") ? array("KG1") : array($record->stuClass); 
         $n->dateRegistered = strtotime($record->DateRegistered); // There's timezone issues here
         $n->dateOfBirth = strtotime($record->stuDOB);
+        $n->nationality = "gh";
         // Break out the Name
         $nameArray = explode(" ", $record->stuName);
+        $n->status= "active";
         $n->gender = $record->stuGender;
         $n->firstName = $nameArray[0];
         $n->lastName = $nameArray[count($nameArray)-1];
