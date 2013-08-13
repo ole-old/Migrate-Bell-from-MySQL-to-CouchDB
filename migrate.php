@@ -31,21 +31,34 @@ require_once 'PHP-on-Couch-master/lib/couchClient.php';
 require_once 'PHP-on-Couch-master/lib/couchDocument.php';
 global $couchUrl;
 $couchUrl = 'http://pi:raspberry@127.0.0.1:5984';
+// Version of this code will place in seperate databases for testing
+$v = "1";
+$dbNames = array( 
+  "facilities" => "facilities$v",
+  "whoami" => "whoami$v",
+  "resources" => "resources$v",
+  "members" => "members$v",
+  "assignments" => "assignments$v",
+  "actions" => "actions$v",
+  "questions" => "questions$v",
+  "feedback" => "feedback$v",
+  "groups" => "groups$v"
+  );
 
 global $couchClient;
 
 $couchClient = new couchClient($couchUrl, "dummy");
 
 
-exec("curl -XPUT $couchUrl/facilities");
-exec("curl -XPUT $couchUrl/whoami");
-exec("curl -XPUT $couchUrl/resources");
-exec("curl -XPUT $couchUrl/members");
-exec("curl -XPUT $couchUrl/assignments");
-exec("curl -XPUT $couchUrl/actions");
-exec("curl -XPUT $couchUrl/questions");
-exec("curl -XPUT $couchUrl/feedback");
-exec("curl -XPUT $couchUrl/groups");
+exec("curl -XPUT $couchUrl/" . $dbNames['facilities']);
+exec("curl -XPUT $couchUrl/" . $dbNames['whoami']);
+exec("curl -XPUT $couchUrl/" . $dbNames['resources']);
+exec("curl -XPUT $couchUrl/" . $dbNames['members']);
+exec("curl -XPUT $couchUrl/" . $dbNames['assignments']);
+exec("curl -XPUT $couchUrl/" . $dbNames['actions']);
+exec("curl -XPUT $couchUrl/" . $dbNames['questions']);
+exec("curl -XPUT $couchUrl/" . $dbNames['feedback']);
+exec("curl -XPUT $couchUrl/" . $dbNames['groups']);
 
 
 
@@ -103,15 +116,16 @@ $personToIdMap = [];
  */
 
 function saveCouchDocs($docs) {
+  global $dbNames;
   $couchUrl = "http://pi:raspberry@127.0.0.1:5984";
-  $Resources = new couchClient($couchUrl, 'resources'); 
-  $Assignments = new couchClient($couchUrl, 'assignments');
-  $Members = new couchClient($couchUrl, 'members'); 
-  $Actions = new couchClient($couchUrl, 'actions'); 
-  $Questions = new couchClient($couchUrl, 'questions'); 
-  $Feedbacks = new couchClient($couchUrl, 'feedbacks');
-  $Groups = new couchClient($couchUrl, 'groups');
-  $Facilities = new couchClient($couchUrl, 'facilities');
+  $Resources = new couchClient($couchUrl, $dbNames['resources']); 
+  $Assignments = new couchClient($couchUrl, $dbNames['assignments']);
+  $Members = new couchClient($couchUrl, $dbNames['members']); 
+  $Actions = new couchClient($couchUrl, $dbNames['actions']); 
+  $Questions = new couchClient($couchUrl, $dbNames['questions']); 
+  $Feedbacks = new couchClient($couchUrl, $dbNames['feedback']);
+  $Groups = new couchClient($couchUrl, $dbNames['groups']);
+  $Facilities = new couchClient($couchUrl, $dbNames['facilities']);
   foreach($docs as $doc) {
     switch ($doc->kind) {
       case 'Resource':
@@ -174,7 +188,7 @@ $facility = (object) array(
   "area"     => "",
   "street"   => ""
 );
-$Facilities = new couchClient($couchUrl, 'facilities');
+$Facilities = new couchClient($couchUrl, $dbNames['facilities']);
 $facility = $Facilities->storeDoc($facility);
 
 global $facilityId;
@@ -182,19 +196,26 @@ $facilityId = $facility->id;
 
 
 // Create the whoami/facility doc
-
-$whoami = new couchClient('http://127.0.0.1:5984', 'whoami');
+$whoami = new couchClient('http://127.0.0.1:5984', $dbNames['whoami']);
 $whoamiFacility = new couchDocument($whoami);
 $whoamiFacility->set(array(
   "id" => "facility",
   "kind" => "system",
   "facilityId" => $facilityId,
+));
+
+// Create the whoami/config doc
+$whoamiConfig = new couchDocument($whoami);
+$whoamiConfig->set(array(
+  "id" => "config",
+  "kind" => "system",
   "timezone" => "GMT",
   "language" => "EN",
   "version" => "2.0",
-  "layout" => 1
+  "layout" => 1,
+  "subjects" => array("english", "math", "science"),
+  "levels" => array('KG1', 'KG2', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6') 
 ));
-
 
 
 // Create default groups in Couch
@@ -248,8 +269,8 @@ saveCouchDocs($groups);
  */
 print ("Starting Phase Two");
 
-$phaseTwoTables = ["teacherClass", "students", "resources", "LessonPlan", "feedback", "action_log" ];
-//$phaseTwoTables = ["teacherClass", "students", "LessonPlan", "feedback", "action_log" ];
+//$phaseTwoTables = ["teacherClass", "students", "resources", "LessonPlan", "feedback", "action_log" ];
+$phaseTwoTables = ["teacherClass", "students", "LessonPlan", "feedback", "action_log" ];
 //$phaseTwoTables = ["resources", "LessonPlan", "feedback", "action_log" ];
 
 phaseTwo($phaseTwoTables);
@@ -285,6 +306,7 @@ function mapBeLLSchema($records, $table) {
   print "mapBeLLSchema CALLED for " . $table . "\n";
   global $couchClient;
   global $facilityId;
+  global $dbNames;
   global $levelToGroupIdMap;
   $mapped = array();
 
@@ -314,7 +336,7 @@ function mapBeLLSchema($records, $table) {
           "id" => $record->resrcID,
           "type" => $record->type
         );
-        switch($record->type)
+        switch($record->type) {
           case "pdf" :
           case "doc" :
           case "docx" : 
@@ -327,7 +349,7 @@ function mapBeLLSchema($records, $table) {
           break;
         }
         $n->kind = "Resource";
-        $n->language = "EN";
+        $n->language = "en";
         $n->title = $record->title;
         $n->author = ""; 
         $n->subject = strtolower($record->subject);
@@ -382,7 +404,8 @@ function mapBeLLSchema($records, $table) {
         $n->context = array(
           "subject" => $record->subject,
           "use" => "stories for the week",
-          "group" => $levelToGroupIdMap[$record->class]
+          "groupId" => $levelToGroupIdMap[$record->class],
+          "facilityId" => $facilityId 
         );
         $mapped[] = $n;
       }
@@ -392,11 +415,10 @@ function mapBeLLSchema($records, $table) {
     // teacherClass table -> kind:Member documents
     case 'teacherClass' :
       global $personToIdMap;
-
-
+      global $leadTeacherAccountConsolidationMap;
       foreach($records as $record) {
 
-        // Check to see if this is a lead teacher account, it may cause $skip to be true.
+        //!!heck to see if this is a lead teacher account, it may cause $skip to be true.
         foreach($leadTeacherAccountConsolidationMap as $key => $map) {
           if($record->Name == $map[0] || $record->Name == $map[1]) { 
             // If this has a real _id already, we need to skip consolidation but save this a potential name to id match
@@ -408,7 +430,7 @@ function mapBeLLSchema($records, $table) {
             else { 
               $skip = FALSE;
               $originalName = $record->Name; // save for later when we have an ID
-              $record->Name = $map[2]
+              $record->Name = $map[2];
             }
           }
         }
@@ -417,7 +439,7 @@ function mapBeLLSchema($records, $table) {
           $n = new stdClass();
           $n->_id = $couchClient->getUuids(1)[0];
           // Save this so we can change the member reference in the action_log table to docs with kind:Action migration
-          $personToIdMap[$record->Name] = $n->_id
+          $personToIdMap[$record->Name] = $n->_id;
           // Transform into kind: Members, role: Teacher
           $n->login = $record->loginId;
           $n->kind = "Member";
@@ -448,13 +470,16 @@ function mapBeLLSchema($records, $table) {
           // Add Member _id to owners array in documents of kind:Group 
           if ($record->classAssign != "Gen") { 
             global $couchUrl;
-            $Groups = new couchClient($couchUrl, "groups");
+            global $dbNames;
+            $Groups = new couchClient($couchUrl, $dbNames["groups"]);
+            print_r($levelToGroupIdMap);
             $groupId = $levelToGroupIdMap[$record->classAssign];
             $group = $Groups->getDoc($groupId);
             $group->owners[] = $n->_id;
             $Groups->storeDoc($group);
           }
           $mapped[] = $n;
+        }
       }
     break;
 
@@ -487,7 +512,7 @@ function mapBeLLSchema($records, $table) {
         }
         // Add Member _id to members array in documents of kind:Group 
         global $couchUrl;
-        $Groups = new couchClient($couchUrl, "groups");
+        $Groups = new couchClient($couchUrl, $dbNames["groups"]);
         $group = $Groups->getDoc($levelToGroupIdMap[$record->stuClass]);
         $group->members[] = $n->_id;
         $Groups->storeDoc($group);
