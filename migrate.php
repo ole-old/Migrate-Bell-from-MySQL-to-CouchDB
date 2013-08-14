@@ -1,4 +1,4 @@
-<?php $v = "24";
+<?php $v = "29";
 
 /*
  *
@@ -384,11 +384,9 @@ function mapBeLLSchema($records, $table) {
         $teacherClassNameToMemberIdMapTruncated[substr($key, 0, 15)] = $value;
       }
 
-      print_r($teacherClassNameToMemberIdMapTruncated);
       
       // usedResources table -> kind:Feedback documents
       foreach($records as $record) {
-        print_r($record->usedby);
         $n = new stdClass();
         $n->kind = "Feedback";
         $n->rating = $record->rating;
@@ -433,18 +431,17 @@ function mapBeLLSchema($records, $table) {
 
         // check to see if this is a lead teacher account, it may cause $skip to be true.
         foreach($leadTeacherAccountConsolidationMap as $key => $map) {
-          if($record->Name == $map[0] || $record->Name == $map[1]) { 
-            // If this has a real _id already, we need to skip consolidation but save this a potential name to id match
-            if($map[3]) { 
-              $skip = TRUE;
-              $teacherClassNameToMemberIdMap[$record->Name] = $map[3];
-            }
-            // We have our first case of this Lead teacher in which case we want to this account the desired name and make a new Member document
-            else { 
-              $skip = FALSE;
-              $originalName = $record->Name; // save for later when we have an ID
-              $record->Name = $map[2];
-            }
+          if ($record->Name == $map[1]) { 
+            $skip = TRUE;
+          }
+          else if($record->Name == $map[0]) {
+            $skip = FALSE;
+            $originalLeadName = $map[1]; // save for later when we have an ID
+            $originalTeacherName = $map[0]; // save for later when we have an ID
+            $record->Name = $map[2];
+          }
+          else {
+            $skip = FALSE;
           }
         }
 
@@ -452,12 +449,23 @@ function mapBeLLSchema($records, $table) {
           $n = new stdClass();
           $n->_id = "gh" . $couchClient->getUuids(1)[0];
           // Save this so we can change the member reference in the action_log table to docs with kind:Action migration
-          $teacherClassNameToMemberIdMap[$record->Name] = $n->_id;
+          // If we are mapping this name from old accounts we'll need to save the map to this new ID for reference from other tables
+          if ($originalLeadName && $originalTeacherName) {
+            $teacherClassNameToMemberIdMap[$originalTeacherName] = $n->_id;
+            $teacherClassNameToMemberIdMap[$originalLeadName] = $n->_id;
+            // Reset variables for next iteration
+            $originalLeadName = FALSE;
+            $originalTeacherName = FALSE;
+            $skip = FALSE;
+          }
+          else {
+            $teacherClassNameToMemberIdMap[$record->Name] = $n->_id;
+          }
           // Transform into kind: Members, role: Teacher
           $n->login = $record->loginId;
           $n->kind = "Member";
           $n->facilityId = $facilityId;
-          $n->role = array(strtolower($record->Role));
+          $n->roles = array(strtolower($record->Role));
           $n->pass = $record->pswd;
           $n->status= "active";
           $n->levels = ($record->classAssign == "KG") ? array("KG1") : array($record->classAssign);  // No good equivalent
@@ -479,9 +487,6 @@ function mapBeLLSchema($records, $table) {
             $n->middleNames = "";
           }
 
-          // We need this later for migrating action_log table to documents with kind:Action
-          $teacherClassNameToMemberIdMap[$originalName] = $n->_id;
-
           // Add Member _id to owners array in documents of kind:Group 
           if ($record->classAssign != "Gen") { 
             global $couchUrl;
@@ -495,6 +500,7 @@ function mapBeLLSchema($records, $table) {
           $mapped[] = $n;
         }
       }
+      print_r($teacherClassNameToMemberIdMap);
     break;
 
     // students table -> kind:Member documents
