@@ -1,4 +1,4 @@
-<?php $v = "29";
+<?php $v = "30";
 
 /*
  *
@@ -262,8 +262,8 @@ saveCouchDocs($groups);
  */
 print ("Starting Phase Two");
 
-//$phaseTwoTables = ["teacherClass", "students", "resources", "LessonPlan", "feedback", "action_log" ];
-$phaseTwoTables = ["teacherClass",  "resources", "usedResources","LessonPlan", "feedback", "action_log" ];
+$phaseTwoTables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan", "feedback", "action_log" ];
+//$phaseTwoTables = ["teacherClass",  "resources", "usedResources","LessonPlan", "feedback", "action_log" ];
 //$phaseTwoTables = ["teacherClass", "students", "LessonPlan", "feedback", "action_log" ];
 //$phaseTwoTables = ["resources", "LessonPlan", "feedback", "action_log" ];
 
@@ -509,7 +509,7 @@ function mapBeLLSchema($records, $table) {
         $n = new stdClass();
         $n->_id = "gh" . $couchClient->getUuids(1)[0];
         $n->kind = "Member";
-        $n->role = array("student");
+        $n->roles = array("student");
         // no login for students
         $n->facilityId = $facilityId;
         $n->pass = $record->stuCode;
