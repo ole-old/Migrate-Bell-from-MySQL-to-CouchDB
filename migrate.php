@@ -1,4 +1,4 @@
-<?php $v = "30";
+<?php $v = "";
 
 /*
  *
@@ -121,7 +121,7 @@ function saveCouchDocs($docs) {
         $response = $Resources->storeDoc($doc);
         // Send the attachment
         $file_path = "/var/www/resources/" . $doc->legacy['id'] . "." . $doc->legacy['type'];
-        //$Resources->storeAttachment($Resources->getDoc($response->id), $file_path, mime_content_type($file_path));
+        $Resources->storeAttachment($Resources->getDoc($response->id), $file_path, mime_content_type($file_path));
       break;
       case 'Assignment':
         $Assignments->storeDoc($doc); 
@@ -543,6 +543,7 @@ function mapBeLLSchema($records, $table) {
     break;
     // @todo feedback table -> kind:Action, context:pbell documents
     // @todo action_log table -> kind:Action, context:lms documents
+    case 'feedback' : 
     case 'action_log' : 
       // @todo When filling out $n->memberId, If $record->person is in the $idToPersonMap, we'll want to consolidate
 
