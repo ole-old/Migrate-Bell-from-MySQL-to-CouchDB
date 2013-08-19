@@ -1,4 +1,4 @@
-<?php $v = "";
+<?php $v = "69";
 
 /*
  *
@@ -34,6 +34,11 @@ global $couchClient;
 
 $couchClient = new couchClient($couchUrl, "dummy");
 
+echo "\033[32m";
+print ("Setting up\n");
+echo "\033[0m";
+
+
 
 exec("curl -XPUT $couchUrl/" . $dbNames['facilities']);
 exec("curl -XPUT $couchUrl/" . $dbNames['whoami']);
@@ -45,23 +50,22 @@ exec("curl -XPUT $couchUrl/" . $dbNames['questions']);
 exec("curl -XPUT $couchUrl/" . $dbNames['feedback']);
 exec("curl -XPUT $couchUrl/" . $dbNames['groups']);
 
-
-
-
-
-
-
-
-
-
-/*
- *
- *
- * Set up global variables and defaults
- *
- *
- */
-
+global $Resources;
+$Resources = new couchClient($couchUrl, $dbNames['resources']); 
+global $Assignments;
+$Assignments = new couchClient($couchUrl, $dbNames['assignments']);
+global $Members;
+$Members = new couchClient($couchUrl, $dbNames['members']); 
+global $Actions;
+$Actions = new couchClient($couchUrl, $dbNames['actions']); 
+global $Questions;
+$Questions = new couchClient($couchUrl, $dbNames['questions']); 
+global $Feedback;
+$Feedback = new couchClient($couchUrl, $dbNames['feedback']);
+global $Groups;
+$Groups = new couchClient($couchUrl, $dbNames['groups']);
+global $Facilities;
+$Facilities = new couchClient($couchUrl, $dbNames['facilities']);
 
 date_default_timezone_set('UTC'); 
 
@@ -106,14 +110,14 @@ $resrcIDtoResourceIdMap = array();
 function saveCouchDocs($docs) {
   global $dbNames;
   $couchUrl = "http://pi:raspberry@127.0.0.1:5984";
-  $Resources = new couchClient($couchUrl, $dbNames['resources']); 
-  $Assignments = new couchClient($couchUrl, $dbNames['assignments']);
-  $Members = new couchClient($couchUrl, $dbNames['members']); 
-  $Actions = new couchClient($couchUrl, $dbNames['actions']); 
-  $Questions = new couchClient($couchUrl, $dbNames['questions']); 
-  $Feedback = new couchClient($couchUrl, $dbNames['feedback']);
-  $Groups = new couchClient($couchUrl, $dbNames['groups']);
-  $Facilities = new couchClient($couchUrl, $dbNames['facilities']);
+  global $Resources; 
+  global $Assignments;
+  global $Members; 
+  global $Actions; 
+  global $Questions; 
+  global $Feedback;
+  global $Groups;
+  global $Facilities;
   foreach($docs as $doc) {
     switch ($doc->kind) {
       case 'Resource':
@@ -162,6 +166,11 @@ function saveCouchDocs($docs) {
  *
  *
  */
+
+echo "\033[32m";
+print ("Starting Phase One\n");
+echo "\033[0m";
+
 
 // Get record from schoolDetails so we can set Facility and get FacilityId for other documents that will reference the current facility
 $result = $mysqli->query("SELECT * FROM schoolDetails");
@@ -260,9 +269,13 @@ saveCouchDocs($groups);
  *
  *
  */
-print ("Starting Phase Two");
+echo "\033[32m";
+print ("Starting Phase Two\n");
+echo "\033[0m";
 
-$phaseTwoTables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan", "feedback", "action_log" ];
+//$phaseTwoTables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan", "feedback", "action_log" ];
+$phaseTwoTables = ["teacherClass", "usedResources",  "LessonPlan", "feedback", "action_log" ];
+// $phaseTwoTables = ["teacherClass", "action_log" ];
 //$phaseTwoTables = ["teacherClass",  "resources", "usedResources","LessonPlan", "feedback", "action_log" ];
 //$phaseTwoTables = ["teacherClass", "students", "LessonPlan", "feedback", "action_log" ];
 //$phaseTwoTables = ["resources", "LessonPlan", "feedback", "action_log" ];
@@ -297,7 +310,10 @@ function getMysqlRecords($table) {
 
 
 function mapBeLLSchema($records, $table) {
+  echo "\033[32m";
   print "mapBeLLSchema CALLED for " . $table . "\n";
+  echo "\033[0m";
+
   global $couchClient;
   global $facilityId;
   global $dbNames;
@@ -379,6 +395,7 @@ function mapBeLLSchema($records, $table) {
       
       // Because this table's usedby column had a limit of 15 characters, references to teachers by name were truncated.
       // Create a version of $teacherClassNameToMemberIdMap with truncated keys.
+      global $teacherClassNameToMemberIdMapTruncated;
       $teacherClassNameToMemberIdMapTruncated = array();
       foreach($teacherClassNameToMemberIdMap as $key => $value) {
         $teacherClassNameToMemberIdMapTruncated[substr($key, 0, 15)] = $value;
@@ -500,7 +517,6 @@ function mapBeLLSchema($records, $table) {
           $mapped[] = $n;
         }
       }
-      print_r($teacherClassNameToMemberIdMap);
     break;
 
     // students table -> kind:Member documents
@@ -544,9 +560,61 @@ function mapBeLLSchema($records, $table) {
     // @todo feedback table -> kind:Action, context:pbell documents
     // @todo action_log table -> kind:Action, context:lms documents
     case 'feedback' : 
-    case 'action_log' : 
-      // @todo When filling out $n->memberId, If $record->person is in the $idToPersonMap, we'll want to consolidate
 
+    break;
+    case 'action_log' : 
+
+      global $Members;
+      global $teacherClassNameToMemberIdMap;
+      global $teacherClassNameToMemberIdMapTruncated;
+
+      // Record the successful and unsuccesful mappings
+      $successPersonToMemberIdMap = array();
+      $failPersonToMemberIdMap = array();
+      // Count the mapping failurs
+      $failPersonToMemberIdMapCount = 0;
+
+      foreach($records as $record) { 
+        $n = new stdClass();
+        $n->kind = "Action";
+        $memberId = null;
+        // @todo there are some entries in this person field which I don't know how to relate back to the member record.
+        if(array_key_exists($record->person, $teacherClassNameToMemberIdMap)) { 
+          $memberId = $teacherClassNameToMemberIdMap[$record->person];
+        }
+        else if (array_key_exists($record->person, $teacherClassNameToMemberIdMapTruncated)) { 
+          $memberId = $teacherClassNameToMemberIdMapTruncated[$record->person];
+        }
+        if($memberId) {
+          $successPersonToMemberIdMap[$record->person] = $memberId;
+          $member = $Members->getDoc($memberId); 
+          $n->memberId = $member->_id; 
+          $n->memberRoles = $member->roles;
+          $n->action = $record->action;
+          $n->timestamp = strtotime($record->dateTime);
+          $n->context = "lms";
+          $mapped[] = $n;
+        }
+        else {
+          $failPersonToMemberIdMap[$record->person] = TRUE;
+          $failPersonToMemberIdMapCount++;
+        }
+      }
+      // Print out the debugging info
+      if($failPersonToMemberIdMap) {
+        echo "\033[41m";
+        print "Failed to map $failPersonToMemberIdMapCount out of " . count($records) . " action_log records' person field to a Member._id\n";
+        echo "\033[0m";
+        print "successPersonToMemberIdMap:\n";
+        print_r($successPersonToMemberIdMap);
+        print "failPersonToMemberIdMap:\n";
+        print_r($failPersonToMemberIdMap);
+        print "teacherClassNameToMemberIdMap: \n";
+        print_r($teacherClassNameToMemberIdMap);
+        print "teacherClassNameToMemberIdMapTruncated: \n";
+        print_r($teacherClassNameToMemberIdMapTruncated);
+
+      }
     break;
   }
   return $mapped;
