@@ -24,7 +24,8 @@ global $couchClient;
 $couchClient = new couchClient($couchUrl, "dummy");
 
 // Tables to migrate
-$tables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan", "feedback", "action_log" ];
+// $tables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan", "feedback", "action_log" ];
+$tables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan"];
 
 // Version of this code will place in seperate databases for testing
 $dbNames = array( 
