@@ -179,12 +179,12 @@ $facility = (object) array(
   "GPS"      => array("", ""),
   "phone"    => "",
   "name"     => $schoolDetails->schoolName,
-  "country"  => "Ghana",
+  "country"  => "gh",
   "region"   => $schoolDetails->location,
   "district" => "",
   "area"     => "",
   "street"   => "",
-  "dateEnrolled" => strtotime($schoolDetails->dateOfEnrollment)
+  "dateEnrolled" => strtotime($schoolDetails->dateOfEnrolment)
 );
 $Facilities = new couchClient($couchUrl, $dbNames['facilities']);
 $facility = $Facilities->storeDoc($facility);
@@ -566,7 +566,7 @@ function mapBeLLSchema($records, $table) {
 
     // action_log table -> kind:Action, context:lms documents
     case 'action_log' : 
-
+    
       global $Members;
       global $teacherClassNameToMemberIdMap;
       global $teacherClassNameToMemberIdMapTruncated;
