@@ -485,7 +485,7 @@ function mapBeLLSchema($records, $table) {
           $n->pass = $record->pswd;
           $n->status= "active";
           $n->levels = ($record->classAssign == "KG") ? array("KG1") : array($record->classAssign);  // No good equivalent
-          $n->phone = $n->Contact;
+          $n->phone = $record->Contact;
           $n->dateRegistered = "";
           $n->dateOfBirth = "";
           $n->nationality = "gh";
