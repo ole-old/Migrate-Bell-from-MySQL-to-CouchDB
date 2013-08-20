@@ -1,11 +1,14 @@
-<?php $v = "69";
+<?php $v = "";
 
 /*
  *
- * Setup dependencies and environment
+ * Setup dependencies and globals
  *
  */
 
+echo "\033[32m";
+print ("Setting up\n");
+echo "\033[0m";
 
 // MySQL
 global $mysqli;
@@ -17,6 +20,12 @@ require_once 'PHP-on-Couch-master/lib/couchClient.php';
 require_once 'PHP-on-Couch-master/lib/couchDocument.php';
 global $couchUrl;
 $couchUrl = 'http://pi:raspberry@127.0.0.1:5984';
+global $couchClient;
+$couchClient = new couchClient($couchUrl, "dummy");
+
+// Tables to migrate
+$tables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan", "feedback", "action_log" ];
+
 // Version of this code will place in seperate databases for testing
 $dbNames = array( 
   "facilities" => "facilities$v",
@@ -30,26 +39,15 @@ $dbNames = array(
   "groups" => "groups$v"
   );
 
-global $couchClient;
+// Delete prior databases
+foreach($dbNames as $key => $value) {
+  exec("curl -XDELETE $couchUrl/$value");
+}
 
-$couchClient = new couchClient($couchUrl, "dummy");
-
-echo "\033[32m";
-print ("Setting up\n");
-echo "\033[0m";
-
-
-
-exec("curl -XPUT $couchUrl/" . $dbNames['facilities']);
-exec("curl -XPUT $couchUrl/" . $dbNames['whoami']);
-exec("curl -XPUT $couchUrl/" . $dbNames['resources']);
-exec("curl -XPUT $couchUrl/" . $dbNames['members']);
-exec("curl -XPUT $couchUrl/" . $dbNames['assignments']);
-exec("curl -XPUT $couchUrl/" . $dbNames['actions']);
-exec("curl -XPUT $couchUrl/" . $dbNames['questions']);
-exec("curl -XPUT $couchUrl/" . $dbNames['feedback']);
-exec("curl -XPUT $couchUrl/" . $dbNames['groups']);
-
+// Create the Couch Databases
+foreach($dbNames as $key => $value) {
+  exec("curl -XPUT $couchUrl/" . $value);
+}
 global $Resources;
 $Resources = new couchClient($couchUrl, $dbNames['resources']); 
 global $Assignments;
@@ -171,7 +169,6 @@ echo "\033[32m";
 print ("Starting Phase One\n");
 echo "\033[0m";
 
-
 // Get record from schoolDetails so we can set Facility and get FacilityId for other documents that will reference the current facility
 $result = $mysqli->query("SELECT * FROM schoolDetails");
 $schoolDetails = $result->fetch_object();
@@ -186,7 +183,8 @@ $facility = (object) array(
   "region"   => $schoolDetails->location,
   "district" => "",
   "area"     => "",
-  "street"   => ""
+  "street"   => "",
+  "dateEnrolled" => strtotime($schoolDetails->dateOfEnrollment)
 );
 $Facilities = new couchClient($couchUrl, $dbNames['facilities']);
 $facility = $Facilities->storeDoc($facility);
@@ -248,11 +246,15 @@ foreach($levelToGroupIdMap as $key => $id) {
 $levelToGroupIdMap["KG"] = $levelToGroupIdMap["KG1"];
 saveCouchDocs($groups);
 
-
-
-
-
-
+// Set up administrator account
+global $adminMember;
+$adminMember = new stdClass();
+$adminMember->_id = "339ba1746345defb0cd868aa8e446019";
+$adminMember->kind = "Member";
+$adminMember->role = ["admin"];
+$adminMember->pass = "ghanabell";
+$adminMember->login = "schoolbell";
+$Members->storeDoc($adminMember);
 
 
 
@@ -273,15 +275,8 @@ echo "\033[32m";
 print ("Starting Phase Two\n");
 echo "\033[0m";
 
-//$phaseTwoTables = ["teacherClass", "students", "resources", "usedResources",  "LessonPlan", "feedback", "action_log" ];
-$phaseTwoTables = ["teacherClass", "usedResources",  "LessonPlan", "feedback", "action_log" ];
-// $phaseTwoTables = ["teacherClass", "action_log" ];
-//$phaseTwoTables = ["teacherClass",  "resources", "usedResources","LessonPlan", "feedback", "action_log" ];
-//$phaseTwoTables = ["teacherClass", "students", "LessonPlan", "feedback", "action_log" ];
-//$phaseTwoTables = ["resources", "LessonPlan", "feedback", "action_log" ];
 
-phaseTwo($phaseTwoTables);
-
+phaseTwo($tables);
 
 function phaseTwo($tables) {
   foreach($tables as $table) {
@@ -370,6 +365,10 @@ function mapBeLLSchema($records, $table) {
         $n->author = ""; 
         $n->subject = strtolower($record->subject);
         $n->created = strtotime($record->dateAdded);
+        global $adminMember;
+        $n->uploadedBy = $adminMember->_id;
+        $n->uploadDate = strtotime("2013-01-15");
+        $n->approvedBy[] = "OLE Ghana";
         if($record->Community == "YES") {
           $n->audience[] = "community education";
         }
@@ -486,6 +485,7 @@ function mapBeLLSchema($records, $table) {
           $n->pass = $record->pswd;
           $n->status= "active";
           $n->levels = ($record->classAssign == "KG") ? array("KG1") : array($record->classAssign);  // No good equivalent
+          $n->phone = $n->Contact;
           $n->dateRegistered = "";
           $n->dateOfBirth = "";
           $n->nationality = "gh";
@@ -536,7 +536,8 @@ function mapBeLLSchema($records, $table) {
         // Break out the Name
         $nameArray = explode(" ", $record->stuName);
         $n->status= "active";
-        $n->gender = $record->stuGender;
+        $n->phone = "";
+        $n->gender = strtolower($record->stuGender);
         $n->firstName = $nameArray[0];
         $n->lastName = $nameArray[count($nameArray)-1];
         if(count($nameArray) > 2) {
@@ -557,11 +558,13 @@ function mapBeLLSchema($records, $table) {
         $mapped[] = $n;
       }
     break;
+
     // @todo feedback table -> kind:Action, context:pbell documents
-    // @todo action_log table -> kind:Action, context:lms documents
     case 'feedback' : 
 
     break;
+
+    // action_log table -> kind:Action, context:lms documents
     case 'action_log' : 
 
       global $Members;
@@ -590,7 +593,9 @@ function mapBeLLSchema($records, $table) {
           $member = $Members->getDoc($memberId); 
           $n->memberId = $member->_id; 
           $n->memberRoles = $member->roles;
+          // @todo Right now action is action+object.  Getting object Id maps for everything is going to take some work.
           $n->action = $record->action;
+          $n->object = "";
           $n->timestamp = strtotime($record->dateTime);
           $n->context = "lms";
           $mapped[] = $n;
